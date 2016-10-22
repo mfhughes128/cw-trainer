@@ -1,4 +1,4 @@
-/*
+/****************************************
   Arduino Morse code Trainer by Tom Lewis, N4TL.   February 21, 2016
   This sketch sends a few random Morse code characters, then waits for the student to send them back with an external keyer.
   If the same characters are sent back the sketch sends new random characters. If they are wrong the sketch sends the same characters over.
@@ -15,22 +15,16 @@
   GNU GPLv3 license (http://www.gnu.org/licenses)
   Contact: raronzen@gmail.com  (not checked too often..)
   Details: http://raronoff.wordpress.com/2010/12/16/morse-endecoder/
-*/
+*****************************************/
 
+#include <avr/pgmspace.h>
 #include <EEPROM.h>
 #include <Morse.h>
-#include <avr/pgmspace.h>
 #include <MorseEnDecoder.h>  // Morse EnDecoder Library
-#include <Wire.h>    //I2C Library
-#include <PS2Keyboard.h>
-
-// changed the lcd library
-//#include <LiquidCrystal_I2C.h>  // Liquid Crystal I2C Library
-
 #include <Adafruit_RGBLCDShield.h>
 #include <utility/Adafruit_MCP23017.h>
-Adafruit_RGBLCDShield lcd = Adafruit_RGBLCDShield();
-// These #defines make it easy to set the backlight color
+
+// These #defines make it easy to set the LCD backlight color
 #define RED 0x1
 #define YELLOW 0x3
 #define GREEN 0x2
@@ -41,284 +35,303 @@ Adafruit_RGBLCDShield lcd = Adafruit_RGBLCDShield();
 #define LCD_DISPLAYON 0x04
 #define LCD_DISPLAYOFF 0x00
 
-// for the Morse code decoder
-#define morseInPin 2
-#define Speed_Pin A0
+// Application preferences global
+//  Char set values:
+//    1 = 26 alpha characters
+//    2 = numbers
+//    3 = punctuation characters
+//    4 = all characters in alphabetical order
+//    5 = all characters in Koch order. Two prefs set range-
+//            KOCH_NUM is number to use
+//            KOCH_SKIP is number to skip
+//    6 = reserved
+#define SAVED_FLG 0   // will be 170 if settings have been saved to EEPROM
+#define GROUP_NUM 1   // expected number of cw characters to be received
+#define KEY_SPEED 2   // morse keying speed (WPM)
+#define CHAR_SET  3   // defines which character set to send the student.
+#define KOCH_NUM  4   // how many character to use
+#define KOCH_SKIP 5   // characters to skip in the Koch table
+#define OUT_MODE  6   // 0 = Key, 1 = Speaker
+byte prefs[7];        // Table of preference values
 
-// for the Morse code transmitter
+// Main menu strings
+const char msg0[] PROGMEM = "N4TL CW Trainer ";
+const char msg1[] PROGMEM = "-Start Trainer  ";
+const char msg2[] PROGMEM = "-Start Decoder  ";
+const char msg3[] PROGMEM = "-Set Preferences";
+const char* const main_menu[] PROGMEM = {msg0, msg1, msg2, msg3};
+
+// Prefs menu strings
+const char prf0[] PROGMEM = "Saving to EEPROM";
+const char prf1[] PROGMEM = "Code Group Size:";
+const char prf2[] PROGMEM = "Code Speed:     ";
+const char prf3[] PROGMEM = "Character Set:  ";
+const char prf4[] PROGMEM = "Koch Number:    ";
+const char prf5[] PROGMEM = "Skip Characters:";
+const char prf6[] PROGMEM = "Out:0=key,1=spk";
+const char* const prefs_menu[] PROGMEM = {prf0, prf1, prf2, prf3, prf4, prf5,prf6};
+
+// Line buffer for LCD
+char line_buf[17];
+char blnk_ln[] {"                "};
+
+//Character sets
+const char koch[] PROGMEM = {'K','M','R','S','U','A','P','T','L','O','W','I','.','N','J','E','F',
+'0','Y','V','.','G','5','/','Q','9','Z','H','3','8','B','?','4','2','7','C','1','D','6','X'};
+const char alpha[] PROGMEM = {'0','1','2','3','4','5','6','7','8','9','A','B','C','D','E','F','G',
+'H','I','J','K','L','M','N','O','P','Q','R','S','T','U','V','W','X','Y','Z',',','.','/','?'};
+const char* const char_sets[] PROGMEM = {alpha, koch};
+char ch_buf[40];  // Buffer for character set
+
+// IO definitions
+const int morseInPin = 2;
 const int beep_pin = 11;  // Pin for CW tone
 const int key_pin = 12;   // Pin for CW Key
-unsigned int beep_on = 1; // 0 = Key, 1 = Beep
-unsigned int key_speed = 25; //  morse keying speed
-unsigned int Key_speed_adj = 3; // correction for keying speed
 
-const int lcd_end = 16; // set width of LCD
-const int lcd_address = 0x27; // I2C LCD Address
-const int lcd_lines = 2; // Number of lines on LCD
-String text;  // Variable to hold LCD receive text
-String tx_text = ""; // sent text
-char cw_rx = ' '; // Variable for incoming Morse character
-char cw_rx1; char cw_rx2; char cw_rx3; char cw_rx4;
-char cw_rx5; char cw_rx6; char cw_rx7; char cw_rx8;
-char cw_rx9; char cw_rx10;
-char cw_tx = ' '; // variable for sending a morse character
-char cw_tx1; char cw_tx2; char cw_tx3; char cw_tx4;
-char cw_tx5; char cw_tx6; char cw_tx7; char cw_tx8;
-char cw_tx9; char cw_tx10;
-unsigned int expected_number = 1; // expected number of cw characters to be received
-unsigned int received_number = 0; // actual number of cw characters received
-const int DataPin = 5; // Set PS2 Keyboard Data Pin
-const int IRQpin =  3; // Set PS2 Keyboard Clock Pin
-char c = ' ';  // character from the keyboard
-unsigned int count = 0;
-unsigned int firstpass = 0;
-unsigned int firstpass2 = 0;
-unsigned int i;
-unsigned int j;
-unsigned int error = 0;
-unsigned int num_of_char;  // how many character to use
-unsigned int start_point = 0;
-unsigned int char_to_use = 1; // defines which character set to send the student.
-// 1 = 26 alpha characters
-// 2 = numbers
-// 3 = miscellaneous characters
-// 4 = all characters
-// 5 = all 40 in Koch order, follow with how many char to use
-// 5 starts at 1 and goes to the number of characters selected.
-// 6 = all 40 in Koch order, follow with "staring point".
-// 6 starts at the "staring point" set and goes to the number set in F5.
+Adafruit_RGBLCDShield lcd = Adafruit_RGBLCDShield();  // LCD class
+morseDecoder morseInput(morseInPin, MORSE_KEYER, MORSE_ACTIVE_LOW);  // Morse receiver class
+Morse morse(beep_pin, prefs[KEY_SPEED], prefs[OUT_MODE]); //default to beep on pin 11  // Morse sender class
 
-// Morse receive decoder
-morseDecoder morseInput(morseInPin, MORSE_KEYER, MORSE_ACTIVE_LOW);  // Define the Morse objects
-// Morse sending pin
-Morse morse(beep_pin, key_speed, beep_on); //default to beep on pin 11
-PS2Keyboard keyboard;  // define the PS2Keyboard
-
+//====================
+// Setup Function
+//====================
 void setup()
 {
+  const int lcd_len = 16; // set width of LCD
+  const int lcd_lines = 2; // Number of lines on LCD
+  const int lcd_address = 0x27; // I2C LCD Address
+  const int ser_baud = 9600;  // Serial baud rate
+  
+  // Start serial debug port
   Serial.begin(9600);
-  keyboard.begin(DataPin, IRQpin);  // Start the Keyboard
+  while(!Serial);
+  Serial.println("N4TL CW Trainer");
+
+  // Start LCD
   lcd.begin(16, 2);
   lcd.setBacklight(WHITE);
-  lcd.print("N4TL CW Trainer");
-  lcd.setCursor(0, 1);
-  lcd.print("G, D, or F keys");
-  Serial.print("N4TL CW Trainer");
-  Serial.print("\n");
 
-  // load previous used values from the EEPROM
-  // first check to find out if values were
-  // previously saved. The first value will be
-  // 170 if the values were saved.
+  // Initialize application preferences
+  prefs_init();
 
-  if (170 == EEPROM.read(0))
-  {
-    expected_number = EEPROM.read(1);
-    key_speed   = EEPROM.read(2);
-    char_to_use = EEPROM.read(3);
-    num_of_char = EEPROM.read(4);
-    start_point = EEPROM.read(5);
-    beep_on     = EEPROM.read(6);
-  }
-  Serial.print("Expected number = ");
-  Serial.print(expected_number );
-  Serial.print("\n");
+}  // end setup()
 
-  Serial.print("key_speed = ");
-  Serial.print(key_speed );
-  Serial.print("\n");
 
-  Serial.print("character set_to_use = ");
-  Serial.print(char_to_use );
-  Serial.print("\n");
-
-  Serial.print("koch num_of_char = ");
-  Serial.print(num_of_char );
-  Serial.print("\n");
-
-  Serial.print("koch start_point = ");
-  Serial.print(start_point );
-  Serial.print("\n");
-
-  Serial.print("beep_on = ");
-  Serial.print(beep_on );
-  Serial.print("\n");
-
-  // make sure values are within the correct range
-  if (expected_number > 15) expected_number = 15;
-  if (key_speed > 30) key_speed = 30;
-  if (char_to_use > 6) char_to_use = 6;
-  if (start_point > 39 ) start_point = 39;
-  if (num_of_char > 40 ) num_of_char = 40;
-  if (start_point > num_of_char) start_point = num_of_char;
-  if (beep_on > 1) beep_on = 1;
-
-  setup_morse();
-
-}  // End Setup
-
+//====================
+// Main Loop Function
+//====================
 void loop()
 {
-  // get users input. Runs until G is pressed
-  // once G is pressed this code is not run again.
-  while ((c != 'G') && (c != 'D'))
-  {
-    if (keyboard.available())    // Check the keyboard to see if a key has been pressed
+  byte op_mode;
+
+  // Run the main menu
+  op_mode = get_mode();
+
+  // Dispatch the selected operation
+  switch (op_mode) {
+    case 1:
+      morse_trainer();
+      break;
+    case 2:
+      morse_decode();
+      break;
+    case 3:
+      set_prefs();
+      break;
+  }  //end dispatch switch  
+}  // end loop()
+
+
+//====================
+// Operating Mode Menu Function
+//====================
+byte get_mode()
+{
+  byte entry = 1;
+  byte buttons = 0;
+  boolean done = false;
+  
+  // Clear the LCD and display menu heading
+  lcd.clear();
+  lcd.setCursor(0,0);
+  strcpy_P(line_buf, (char*)pgm_read_word(&(main_menu[0])));
+  lcd.print(line_buf);
+  
+  do {
+    lcd.setCursor(0, 1);
+    strcpy_P(line_buf, (char*)pgm_read_word(&(main_menu[entry])));
+    lcd.print(line_buf);
+    delay(250);
+    while(!(buttons = lcd.readButtons()));  // wait for button press
+    if (buttons & BUTTON_UP) --entry;
+    if (buttons & BUTTON_DOWN) ++entry;
+    entry = constrain(entry, 1, 3);
+    if (buttons & BUTTON_SELECT) done = true; 
+    while(lcd.readButtons());  // wait for button release
+  } while(!done);
+  
+  return entry;
+}  // end get_mode()
+
+
+//====================
+// Set Preferences menu Function
+//====================
+void set_prefs()
+{
+  byte pref = 1;
+  const byte n_prefs = sizeof(prefs)-1;
+  byte p_val = 0;
+  byte tmp;
+  byte buttons = 0;
+  boolean next = false;
+  boolean done = false;
+
+  // Clear the display
+  lcd.clear();
+  Serial.println("Set pref started");
+
+  // Loop displaying preference values and let user change them
+  do {
+    // Display the selected preference
+    lcd.setCursor(0,0);
+    strcpy_P(line_buf, (char*)pgm_read_word(&(prefs_menu[pref])));
+    lcd.print(line_buf);
+    p_val = prefs[pref];
+
+    do {
+      // Display the pref current value and wait for button press
+      lcd.setCursor(0,1);
+      lcd.print(" = ");
+      lcd.print(p_val);
+      lcd.print("          ");
+      delay(250);
+      while(!(buttons = lcd.readButtons()));
+
+      // Handle button press in priority order
+      if (buttons & BUTTON_SELECT) {
+        next = true;
+        done = true;
+      } else if (buttons & BUTTON_UP) {
+        tmp = --pref;
+        pref = constrain(tmp, 1, n_prefs);
+        next = true;
+      } else if (buttons & BUTTON_DOWN) {
+        tmp = ++pref;
+        pref = constrain(tmp, 1, n_prefs);
+        next = true;
+      } else if (buttons & BUTTON_RIGHT) {
+        p_val = prefs_set(pref, ++p_val);
+      } else if (buttons & BUTTON_LEFT) {
+        p_val = prefs_set(pref, --p_val);
+      }
+      
+    }while(!next);  // end of values loop
+    next = false;  // Reset next prefs flag.
+
+  } while(!done);  // end of prefs loop
+
+  // Signal user select button was detected
+  lcd.clear();
+  lcd.setCursor(0,0);
+  strcpy_P(line_buf, (char*)pgm_read_word(&(prefs_menu[SAVED_FLG])));
+  lcd.print(line_buf);
+  delay(500);
+  while(lcd.readButtons());  // wait for button release
+  
+  // Save all prefs before returning.
+  prefs_set(SAVED_FLG, 170);  // Set perfs saved flag
+  for (int i=0; i<7; i++) {
+    EEPROM.write(i, prefs[i]);
+  }
+}  // end set_prefs()
+
+
+//====================
+// Morse code send and receive
+//====================
+void morse_trainer()
+{
+  char cw_tx[17];   // Buffer for characters to send
+  byte cset, lo, hi; // Set of characters to send the trainee
+  byte i,j;
+  byte buttons;
+  unsigned int received_number = 0; // actual number of cw characters received
+  unsigned int error = 0;
+
+  // Init ===========================================================
+  Serial.println("Morse trainer started");
+  randomSeed(micros()); // random seed = microseconds since start.
+  
+  // Initialize Morse sender
+  setup_morse();
+
+  // Setup character set
+  switch (prefs[CHAR_SET]) {
+    case 1:  // alpha characters
+      cset = 0;
+      lo = 10;
+      hi = 35;
+      break;
+    case 2:  // numbers
+      cset = 0;
+      lo = 0;
+      hi = 9;
+      break;
+    case 3:  // punctuation
+      cset = 0;
+      lo = 36;
+      hi = 39;
+      break;
+    case 4:  // all alphabetic
+      cset = 0;
+      lo = 0;
+      hi = 39;
+      break;
+    case 5:  // Koch order
+      cset = 1;
+      lo = prefs[KOCH_SKIP];
+      hi = prefs[KOCH_NUM];
+      break;
+    case 6:  // Koch order (same as 5 for now)
+      cset = 1;
+      lo = prefs[KOCH_SKIP];
+      hi = prefs[KOCH_NUM];
+      break;
+  }
+
+  // Copy the chosen character set from program memory to working buffer 
+  strcpy_P(ch_buf, (char*)pgm_read_word(&(char_sets[cset])));
+
+  
+  // Training loop =======================================================
+  do {
+    Serial.print("\nTop of the sending loop ");
+    lcd.clear();
+    lcd.setCursor(0, 0); // Set the cursor to top line, left
+
+    // Send characters to trainee
+    for (i = 0; i < (prefs[GROUP_NUM]); i++)
     {
+      if (error == 0 ) { // if no error on last round, generate new text.
+        j = random(lo, hi);
+        cw_tx[i] = ch_buf[j];
+      }
 
-      c = keyboard.read();      // read the key
-      c = toupper(c);
-
-      //how many CW char to send before going to receive
-      if (c == PS2_LEFTARROW) //less
-      {
-        expected_number--;
-        if (expected_number <= 0) expected_number = 1;
-        lcd.setCursor(0, 0);
-        lcd.print("num char ");
-        lcd.print(expected_number);
-        lcd.print("       ");
-      }
-      else if (c == PS2_RIGHTARROW) //more
-      {
-        expected_number++;
-        if (expected_number > 15) expected_number = 15;
-        //lcd.clear();
-        lcd.setCursor(0, 0);
-        lcd.print("num char ");
-        lcd.print(expected_number);
-        lcd.print("       ");
-      }
-      // change the CW speed
-      else if (c == PS2_UPARROW) //faster
-      {
-        key_speed++;
-        if (key_speed > 30) key_speed = 30;
-        // lcd.clear();
-        lcd.setCursor(0, 1);
-        lcd.print("speed ");
-        lcd.print(key_speed);
-        setup_morse();
-      }
-      else if (c == PS2_DOWNARROW) // slower
-      {
-        key_speed--;
-        if (key_speed < 20) key_speed = 20;
-        // lcd.clear();
-        lcd.setCursor(0, 1);
-        lcd.print("speed ");
-        lcd.print(key_speed);
-        setup_morse();
-      }
-      // these select the character set to use.
-      else if (c == PS2_F1)
-      {
-        char_to_use = 1;
-        lcd.setCursor(0, 0);
-        lcd.print("26 alpha        ");
-      }
-      else if (c == PS2_F2)
-      {
-        char_to_use = 2;
-        lcd.setCursor(0, 0);
-        lcd.print("Numbers         ");
-      }
-      else if (c == PS2_F3)
-      {
-        char_to_use = 3;
-        lcd.setCursor(0, 0);
-        lcd.print(", . ? /         ");
-      }
-      else if (c == PS2_F4)
-      {
-        char_to_use = 4;
-        lcd.setCursor(0, 0);
-        lcd.print("40 chars alphabetical");
-      }
-      else if (c == PS2_F5)
-      {
-        char_to_use = 5;
-        lcd.setCursor(0, 0);
-        lcd.print("40 char Koch order  ");
-        lcd.setCursor(0, 1);
-        lcd.print("How many chars? ");
-        num_of_char = get_number_kb();
-        if (num_of_char > 40 ) num_of_char = 40;
-        lcd.setCursor(0, 0);
-        lcd.print("   ");
-        lcd.setCursor(0, 0);
-        lcd.print(num_of_char);
-        lcd.setCursor(0, 1);
-        lcd.print("G to go or F1-F6");
-      }
-      else if (c == PS2_F6)
-      {
-        char_to_use = 6;
-        lcd.setCursor(0, 0);
-        lcd.print("40 char Koch order");
-        lcd.setCursor(0, 1);
-        lcd.print("Enter start number");
-        start_point = get_number_kb();
-        if (start_point < 1) start_point = 1;
-        if (start_point > num_of_char) start_point = num_of_char;
-        lcd.clear();
-        lcd.setCursor(0, 0);
-        lcd.print("start = ");
-        lcd.print(start_point);
-        lcd.setCursor(0, 1);
-        lcd.print("End = ");
-        lcd.print(num_of_char);
-      }
-      else if (c == PS2_F9) // alternate between beep and relay out
-      {
-        lcd.setCursor(0, 0);
-        if (beep_on == 0)
-        {
-          beep_on = 1;
-          setup_morse();
-          lcd.print("speaker on      ");
-        }
-        else
-        {
-          beep_on = 0;
-          setup_morse();
-          lcd.print("speaker off     ");
-        }
-      }
-      else if (c == PS2_F10)
-      {
-        EEPROM.write(0, 170);
-        EEPROM.write(1, expected_number);
-        EEPROM.write(2, key_speed);
-        EEPROM.write(3, char_to_use);
-        EEPROM.write(4, num_of_char);
-        EEPROM.write(5, start_point);
-        EEPROM.write(6, beep_on);
-      }
+      lcd.print(cw_tx[i]);  // Display the sent char
+      morse.send(cw_tx[i]);   // Send the character
+      Serial.print(cw_tx[i]); // debug print
     }
-  } // End keyboard while
+    
+  } while(!(buttons = lcd.readButtons()));
 
-  //===============================
-  // Morse code send and receive
-  //===============================
-  while (c == 'G') // go
+  while(lcd.readButtons());  // wait for button release
+
+}  // end morse_trainer()
+
+/*
+  while (true) // go
   {
-    if (firstpass == 0)
-    {
-      randomSeed(micros()); // random seed = microseconds since start.
-      lcd.clear();
-      firstpass++;
-    }
-    //===============================
-    // Start of the sending loop
-    //===============================
-    // serial print for debug
-
-    Serial.print("Top of the sending loop \n");
-    Serial.print("Expected number = ");
-    Serial.print(expected_number );
-    Serial.print("\n");
-
     lcd.setCursor(0, 1); // Set the cursor to bottom line, left
     lcd.print("                ");  // clear lower line
     tx_text = ("");
@@ -444,11 +457,21 @@ void loop()
         }
       }
     }
-  }
-  //
-  // CW decoder only, use this section to check your keyers output to this decoder.
-  //
-  while (c == 'D')  // decode cw, if D is entered the sketch stays in the short loop.
+  }  // end While
+*/
+
+
+//=====================================
+// CW decoder only, use this section to check your keyers output to this decoder.
+//=====================================
+void morse_decode()
+{
+  unsigned int count = 0;
+  unsigned int firstpass2 = 0;
+  Serial.println("Morse decoder started");
+    /*
+
+  while (true)  // decode cw, if D is entered the sketch stays in the short loop.
   {
     if (firstpass2 == 0)
     {
@@ -469,157 +492,108 @@ void loop()
       if (count == 16) lcd.setCursor(0, 1);
       if (count == 0) lcd.setCursor(0, 0);
     }
-  }
-}  // End Main Loop
+  }  // end of while
+    */
+}  // end of morse_decode()
 
 
-// Start of the functons.
-// changes a random number to an alpha numeric character.
-char get_numbered_char(int i) {
-  char ch;
-  if (i == 0) ch = '0';
-  if (i == 1) ch = '1';
-  if (i == 2) ch = '2';
-  if (i == 3) ch = '3';
-  if (i == 4) ch = '4';
-  if (i == 5) ch = '5';
-  if (i == 6) ch = '6';
-  if (i == 7) ch = '7';
-  if (i == 8) ch = '8';
-  if (i == 9) ch = '9';
-  if (i == 10) ch = 'A';
-  if (i == 11) ch = 'B';
-  if (i == 12) ch = 'C';
-  if (i == 13) ch = 'D';
-  if (i == 14) ch = 'E';
-  if (i == 15) ch = 'F';
-  if (i == 16) ch = 'G';
-  if (i == 17) ch = 'H';
-  if (i == 18) ch = 'I';
-  if (i == 19) ch = 'J';
-  if (i == 20) ch = 'K';
-  if (i == 21) ch = 'L';
-  if (i == 22) ch = 'M';
-  if (i == 23) ch = 'N';
-  if (i == 24) ch = 'O';
-  if (i == 25) ch = 'P';
-  if (i == 26) ch = 'Q';
-  if (i == 27) ch = 'R';
-  if (i == 28) ch = 'S';
-  if (i == 29) ch = 'T';
-  if (i == 30) ch = 'U';
-  if (i == 31) ch = 'V';
-  if (i == 32) ch = 'W';
-  if (i == 33) ch = 'X';
-  if (i == 34) ch = 'Y';
-  if (i == 35) ch = 'Z';
-  if (i == 36) ch = ',';
-  if (i == 37) ch = '.';
-  if (i == 38) ch = '/';
-  if (i == 39) ch = '?';
-  Serial.print("First cw function i = ");
-  Serial.print(i);
-  Serial.print(" ");
-  return ch;
-}
 
-// changes a random number to an alpha numeric character.
-// koch order
-char get_numbered_char_koch(int i) {
-  char ch;
-  if (i == 0) ch = 'K';
-  if (i == 1) ch = 'M';
-  if (i == 2) ch = 'R';
-  if (i == 3) ch = 'S';
-  if (i == 4) ch = 'U';
-  if (i == 5) ch = 'A';
-  if (i == 6) ch = 'P';
-  if (i == 7) ch = 'T';
-  if (i == 8) ch = 'L';
-  if (i == 9) ch = 'O'; // Letter o
-  if (i == 10) ch = 'W';
-  if (i == 11) ch = 'I';
-  if (i == 12) ch = '.';
-  if (i == 13) ch = 'N';
-  if (i == 14) ch = 'J';
-  if (i == 15) ch = 'E';
-  if (i == 16) ch = 'F';
-  if (i == 17) ch = '0'; // Number zero
-  if (i == 18) ch = 'Y';
-  if (i == 19) ch = 'V';
-  if (i == 20) ch = '.';
-  if (i == 21) ch = 'G';
-  if (i == 22) ch = '5';
-  if (i == 23) ch = '/';
-  if (i == 24) ch = 'Q';
-  if (i == 25) ch = '9';
-  if (i == 26) ch = 'Z';
-  if (i == 27) ch = 'H';
-  if (i == 28) ch = '3';
-  if (i == 29) ch = '8';
-  if (i == 30) ch = 'B';
-  if (i == 31) ch = '?';
-  if (i == 32) ch = '4';
-  if (i == 33) ch = '2';
-  if (i == 34) ch = '7';
-  if (i == 35) ch = 'C';
-  if (i == 36) ch = '1';
-  if (i == 37) ch = 'D';
-  if (i == 38) ch = '6';
-  if (i == 39) ch = 'X';
-  Serial.print("Second cw function i = ");
-  Serial.print(i);
-  Serial.print(" ");
-  return ch;
-}
 
-//get a one or two digit number from the keyboard
-
-int get_number_kb()
+//===========================
+// Restore app preferences from EEPROM if
+// values are saved, else set to defaults.
+// Send values to serial port on debug. 
+//===========================
+void prefs_init()
 {
-  static char input[10];
-  int i;
-  char c = '\0';
-  char kb_string[10];
-  int  number = 0;
-  for (i = 1; i < (10); i++) kb_string[i] = 0; // clear string
-  Serial.print("Start kb function ");
-  lcd.setCursor(0, 0);
-  i = 0;
-  while ((c != '\r') && (i < 3))
+  // Restore app settings from the EEPROM if the saved
+  // flag value is 170, otherwise init to defaults.
+  if (EEPROM.read(0) == 170)
   {
-    if (keyboard.available()) // Check the keyboard to see if a key has been pressed
+    prefs_set(SAVED_FLG, 170);
+    for (int idx = 1; idx < 7; idx++)
     {
-      c = keyboard.read();      // read the key
-      kb_string[i] = c;
-      lcd.print(c);
-      i++;
+      prefs_set(idx,EEPROM.read(idx));
     }
   }
-  // convert character string to number
-  number = 0;
-  for (i = 0; kb_string[i] >= '0' && kb_string[i] <= '9'; ++i)
-    number = (10 * number) + (kb_string[i] - '0');
-  Serial.print(" kb number = ");  Serial.println( number );
-  Serial.print(" ");
-  return number;
+  else
+  {
+    prefs_set(SAVED_FLG, 0);  // Prefs not saved
+    prefs_set(GROUP_NUM, 1);  // Send/receive groups of 1 char to start
+    prefs_set(KEY_SPEED, 25); // Send at 25 wpm to start
+    prefs_set(CHAR_SET, 5);   // Use Koch order char set
+    prefs_set(KOCH_NUM, 5);   // Use first 5 char in Koch set
+    prefs_set(KOCH_SKIP, 0);  // Don't skip over any char to start
+    prefs_set(OUT_MODE, 1);   // Output to speaker
+  }
 }
 
-// morse code setup
+
+//========================
+// Set preference specified in arg1 to value in arg2
+// Constrain prefs values to defined limits
+// Echo value to serial port
+//========================
+byte prefs_set(unsigned int indx, byte val)
+{
+  const byte lo_lim[] {0, 1, 20, 1, 1, 0, 0};  // Table of lower limits of preference values
+  const byte hi_lim[] {170, 15, 30, 6, 40, 39, 1};  // Table of uppper limits of preference values
+  byte new_val;
+
+  // Set new value
+  new_val = constrain(val, lo_lim[indx], hi_lim[indx]);
+
+  // Dispatch on preference index to do debug print
+  switch (indx) {
+    case SAVED_FLG:
+      Serial.print("Saved flag = ");
+      break;
+    case GROUP_NUM:
+      Serial.print("Group size = ");
+      break;
+    case KEY_SPEED:
+      Serial.print("Key speed = ");
+      break;
+    case CHAR_SET:
+      Serial.print("Character set = ");
+      break;
+    case KOCH_NUM:
+      Serial.print("Koch number = ");
+      break;
+    case KOCH_SKIP:
+      if (new_val >= prefs[KOCH_NUM]) new_val = prefs[KOCH_NUM]-1;
+      Serial.print("Skip = ");
+      break;
+    case OUT_MODE:
+      Serial.print("Output mode = ");
+      break;
+    default:
+      Serial.print("Preference index out of range\n");
+  }
+
+  // Print and save new value before returning it
+  Serial.println(new_val);
+  prefs[indx] = new_val;
+  return new_val;
+}
+
+
+//=========================================
 // The speed of the sent characters was measured with MRP40.
 // the sent code was slow, an adjustment is necessary to speed it up.
 // with an Key_speed_adj = 3, the measured output speed is
 // 20 wpm measured to be 19.9 wpm
 // 25 wpm measured to be 24.8 wpm
 // 30 wpm measured to be 28.7 wpm
-
+//=========================================
 void setup_morse()  // set beep on or off, correct pin out and set speed
 {
+  unsigned int Key_speed_adj = 3; // correction for keying speed
+  unsigned int key_speed = prefs[KEY_SPEED];
+  unsigned int beep_on = prefs[OUT_MODE];
   if (beep_on == 1)
     Morse morse(beep_pin, key_speed + Key_speed_adj , beep_on);
   else
     Morse morse(key_pin, key_speed + Key_speed_adj , beep_on);
 }
-
-
 

@@ -265,19 +265,38 @@ void morse_trainer()
   char cw_tx[17];   // Buffer for test string
   char cw_rx;       // Received character
   byte rx_cnt = 0;  // Count of received characters
-  
+
+  // Miscelaneous loop parameters
   byte i,j;
   boolean error = false;
   byte buttons;
+
+  // Morse sender parameters
+  byte _speed;
+  byte _pin;
+  byte _mode;
   
-  byte code_speed = prefs[KEY_SPEED] + Key_speed_adj;
-  //  Morse morse(key_pin, code_speed, 0); //key on pin 12
-  Morse morse = Morse(beep_pin, code_speed, 1); //beep on pin 11  
-  morseDecoder morseInput = morseDecoder(morseInPin, MORSE_KEYER, MORSE_ACTIVE_LOW);
 
   // Init ===========================================================
   Serial.println("Morse trainer started");
   randomSeed(micros()); // random seed = microseconds since start.
+
+  // Setup Morse receiver
+  morseDecoder morseInput = morseDecoder(morseInPin, MORSE_KEYER, MORSE_ACTIVE_LOW);
+  
+  // Setup Morse sender
+  _speed = prefs[KEY_SPEED] + Key_speed_adj;
+  switch (prefs[OUT_MODE]) {
+    case 0:  // Digital (key) output
+      _pin = key_pin;
+      _mode = 0;
+      break;
+    case 1:  // Analog (beep) output
+      _pin = beep_pin;
+      _mode = 1;
+      break;
+  }
+  Morse morse = Morse(_pin, _speed, _mode);  
   
   // Setup character set
   switch (prefs[CHAR_SET]) {

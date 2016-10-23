@@ -378,9 +378,35 @@ void morse_trainer()
 //=====================================
 void morse_decode()
 {
-  unsigned int count = 0;
-  unsigned int firstpass2 = 0;
+  char cw_rx;
+  byte button;
+  byte ch_cnt = 0;
+
+  morseDecoder morseInput = morseDecoder(morseInPin, MORSE_KEYER, MORSE_ACTIVE_LOW);
+
   Serial.println("Morse decoder started");
+  lcd.clear();
+  lcd.setCursor(0, 1);
+  lcd.leftToRight();
+
+  do {
+    morseInput.decode();  // Decode incoming CW
+    if (morseInput.available()) {  // If there is a character available
+      cw_rx = morseInput.read();  // Read the CW character
+      if (ch_cnt == 16) {
+        lcd.setCursor(0,1);
+        lcd.print("                ");
+        lcd.setCursor(0,1);
+        Serial.print('\n');
+        ch_cnt = 0;
+      }
+      Serial.print(cw_rx); // send character to the debug serial monitor
+      lcd.print(cw_rx);  // Display the CW character
+      ++ch_cnt;
+    }
+  } while (!(button = lcd.readButtons()));
+
+  while (lcd.readButtons());
 }  // end of morse_decode()
 /*
 

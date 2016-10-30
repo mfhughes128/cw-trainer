@@ -7,14 +7,21 @@
   73 N4TL
 
   Uses code by Glen Popiel, KW5GP, found in his book, Arduino for Ham Radio, published by the ARRL.
-
   Modified and added LCD display by Glen Popiel - KW5GP
 
+  Uses Arduino Morse Library by Erik Linder SM0RVV and Mark VandeWettering K6HX
+  Contact: sm0rvv at google mail. Released 2011 under GPLv3 Version 0.2
+
   Uses MORSE ENDECODER Library by raronzen
-  Copyright (C) 2010, 2012 raron
-  GNU GPLv3 license (http://www.gnu.org/licenses)
+  Copyright (C) 2010, 2012 raron GNU GPLv3 license (http://www.gnu.org/licenses)
   Contact: raronzen@gmail.com  (not checked too often..)
   Details: http://raronoff.wordpress.com/2010/12/16/morse-endecoder/
+
+  Uses the library for the Adafruit RGB 16x2 LCD Shield by Limor Fried/Ladyada
+  for Adafruit Industries http://www.adafruit.com/products/714. BSD license.
+
+  Oct. 2016 - Modified to replace PS-2 keyboard functions with LCD menus and buttons
+  by Mike Hughes, KC1DMR. Latest source at https://github.com/mfhughes128/cw-trainer
 *****************************************/
 
 #include <avr/pgmspace.h>

@@ -57,12 +57,14 @@ char line_buf[17];
 //    6 = reserved
 #define SAVED_FLG 0   // will be 170 if settings have been saved to EEPROM
 #define GROUP_NUM 1   // expected number of cw characters to be received
-#define KEY_SPEED 2   // morse keying speed (WPM)
-#define CHAR_SET  3   // defines which character set to send the student.
-#define KOCH_NUM  4   // how many character to use
-#define KOCH_SKIP 5   // characters to skip in the Koch table
-#define OUT_MODE  6   // 0 = Key, 1 = Speaker
-byte prefs[7];        // Table of preference values
+#define GROUP_DLY 2   // delay before sending (in 0.01 sec increments)
+#define KEY_SPEED 3   // morse keying speed (WPM)
+#define CHAR_SET  4   // defines which character set to send the student.
+#define KOCH_NUM  5   // how many character to use
+#define KOCH_SKIP 6   // characters to skip in the Koch table
+#define OUT_MODE  7   // 0 = Key, 1 = Speaker
+byte prefs[8];        // Table of preference values
+const byte n_prefs = sizeof(prefs)-1;  // number of prefs
 
 //=========================================
 // The speed of the sent characters was measured with MRP40.
@@ -75,7 +77,7 @@ byte prefs[7];        // Table of preference values
 byte Key_speed_adj = 3; // correction for keying speed
 
 // IO definitions
-const byte morseInPin = 2;
+const byte morseInPin = 2; // Pin for input
 const byte beep_pin = 11;  // Pin for CW tone
 const byte key_pin = 12;   // Pin for CW Key
 
@@ -122,6 +124,9 @@ void loop()
     case 3:
       set_prefs();
       break;
+    case 4:
+      paris_test();
+      break;
   }  //end dispatch switch  
 }  // end loop()
 
@@ -136,12 +141,14 @@ byte get_mode()
   const static char msg1[] PROGMEM = ">Start Trainer  ";
   const static char msg2[] PROGMEM = ">Start Decoder  ";
   const static char msg3[] PROGMEM = ">Set Preferences";
-  const static char* const main_menu[] PROGMEM = {msg0, msg1, msg2, msg3};
+  const static char msg4[] PROGMEM = ">Run PARIS Test ";
+  const static char* const main_menu[] PROGMEM = {msg0, msg1, msg2, msg3, msg4};
 
-  byte entry = 1;
+  byte entry = 1;  // current menu option
+  const byte n_entry = 4;  // number of menu options
   byte buttons = 0;
   boolean done = false;
-  
+
   // Clear the LCD and display menu heading
   lcd.clear();
   lcd.setCursor(0,0);
@@ -149,14 +156,17 @@ byte get_mode()
   lcd.print(line_buf);
   
   do {
+    // display this menu option on 2nd line
     lcd.setCursor(0, 1);
     strcpy_P(line_buf, (char*)pgm_read_word(&(main_menu[entry])));
     lcd.print(line_buf);
-    delay(250);
+    delay(250);  // short delay for readability
+
+    // wait for a button press then handle it.
     while(!(buttons = lcd.readButtons()));  // wait for button press
     if (buttons & BUTTON_UP) --entry;
     if (buttons & BUTTON_DOWN) ++entry;
-    entry = constrain(entry, 1, 3);
+    entry = constrain(entry, 1, n_entry);
     if (buttons & BUTTON_SELECT) {
       while(lcd.readButtons());  // wait for button release
       done = true; 
@@ -175,17 +185,17 @@ void set_prefs()
   // Prefs menu strings
   const static char prf0[] PROGMEM = "Saving to EEPROM";
   const static char prf1[] PROGMEM = "Code Group Size:";
-  const static char prf2[] PROGMEM = "Code Speed:     ";
-  const static char prf3[] PROGMEM = "Character Set:  ";
-  const static char prf4[] PROGMEM = "Koch Number:    ";
-  const static char prf5[] PROGMEM = "Skip Characters:";
-  const static char prf6[] PROGMEM = "Out:0=key,1=spk";
-  const static char* const prefs_menu[] PROGMEM = {prf0, prf1, prf2, prf3, prf4, prf5,prf6};
+  const static char prf2[] PROGMEM = "Character Delay:";
+  const static char prf3[] PROGMEM = "Code Speed:     ";
+  const static char prf4[] PROGMEM = "Character Set:  ";
+  const static char prf5[] PROGMEM = "Koch Number:    ";
+  const static char prf6[] PROGMEM = "Skip Characters:";
+  const static char prf7[] PROGMEM = "Out: 0=key,1=spk";
+  const static char* const prefs_menu[] PROGMEM = {prf0, prf1, prf2, prf3, prf4, prf5,prf6,prf7};
 
-  byte pref = 1;
-  const byte n_prefs = sizeof(prefs)-1;
-  byte p_val = 0;
-  byte tmp;
+  byte pref = 1;  // current pref
+  int p_val;
+  int tmp;
   byte buttons = 0;
   boolean next = false;
   boolean done = false;
@@ -243,8 +253,8 @@ void set_prefs()
   delay(500);
   
   // Save all prefs to EEPROM before returning.
-  prefs_set(SAVED_FLG, 170);  // Set perfs saved flag
-  for (int i=0; i<7; i++) {
+  prefs_set(SAVED_FLG, 170);  // Set prefs saved flag
+  for (int i=0; i<n_prefs; i++) {
     EEPROM.write(i, prefs[i]);
   }
   
@@ -349,11 +359,14 @@ void morse_trainer()
     // Send characters to trainee
     for (i = 0; i < (prefs[GROUP_NUM]); i++)
     {
-      if (!error) { // if no error on last round, generate new text.
+      if (!error) {  // if no error on last round, generate new text.
         j = random(lo, hi);
         cw_tx[i] = ch_buf[j];
       }
 
+      if (prefs[GROUP_DLY] > 0) {  //Wait out delay between characters
+        delay(prefs[GROUP_DLY] * 10);
+      }
       lcd.print(cw_tx[i]);  // Display the sent char
       morse.send(cw_tx[i]);   // Send the character
       Serial.print(cw_tx[i]); // debug print
@@ -434,33 +447,59 @@ void morse_decode()
 
   while (lcd.readButtons());
 }  // end of morse_decode()
-/*
 
-  while (true)  // decode cw, if D is entered the sketch stays in the short loop.
+
+//=====================================
+// "PARIS" test routine
+//=====================================
+void paris_test()
+{
+  char cw_tx[]= "PARIS";
+
+  // Morse sender parameters
+  byte _speed;
+  byte _pin;
+  byte _mode;
+
+  boolean done = false;
+  
+  // Setup Morse sender
+  _speed = prefs[KEY_SPEED] + Key_speed_adj;
+  switch (prefs[OUT_MODE]) {
+    case 0:  // Digital (key) output
+      _pin = key_pin;
+      _mode = 0;
+      break;
+    case 1:  // Analog (beep) output
+      _pin = beep_pin;
+      _mode = 1;
+      break;
+  }
+  Morse morse = Morse(_pin, _speed, _mode);  
+
+  // Loop sending until a button is pressed
+  do
   {
-    if (firstpass2 == 0)
+    Serial.print("\nTop of the send loop  ");
+    lcd.clear();
+    lcd.setCursor(0, 0); // Set the cursor to top line, left
+    delay(1000);  // one second between each paris
+    
+    // Send characters 
+    for (int i = 0; i < 5; i++)
     {
-      lcd.clear();
-      lcd.setCursor(0, 1);
-      firstpass2++;
-      lcd.print("CW Decoder");
-      lcd.setCursor(0, 0);
+      if (lcd.readButtons()) done = true;  // if button down, this is last loop
+      if (prefs[GROUP_DLY] > 0) {  //Wait out delay between characters
+        delay(prefs[GROUP_DLY] * 10);
+      }
+      lcd.print(cw_tx[i]);  // Display the sent char
+      morse.send(cw_tx[i]);   // Send the character
+      Serial.print(cw_tx[i]); // debug print
     }
-    morseInput.decode();  // Decode incoming CW
-    if (morseInput.available())  // If there is a character available
-    {
-      cw_rx = morseInput.read();  // Read the CW character
-      Serial.print(cw_rx); // send character to the debug serial monitor
-      lcd.print(cw_rx);  // Display the CW character
-      count++;
-      if (count > 31) count = 0;
-      if (count == 16) lcd.setCursor(0, 1);
-      if (count == 0) lcd.setCursor(0, 0);
-    }
-  }  // end of while
-*/
+  } while (!done);
 
-
+  while (lcd.readButtons());  //wait for button to be released
+}  // end of paris_test()
 
 
 //===========================
@@ -470,12 +509,13 @@ void morse_decode()
 //===========================
 void prefs_init()
 {
+  byte n_prefs = sizeof(prefs);
+  
   // Restore app settings from the EEPROM if the saved
   // flag value is 170, otherwise init to defaults.
   if (EEPROM.read(0) == 170)
   {
-    prefs_set(SAVED_FLG, 170);
-    for (int idx = 1; idx < 7; idx++)
+    for (int idx = 0; idx < n_prefs; idx++)
     {
       prefs_set(idx,EEPROM.read(idx));
     }
@@ -484,6 +524,7 @@ void prefs_init()
   {
     prefs_set(SAVED_FLG, 0);  // Prefs not saved
     prefs_set(GROUP_NUM, 1);  // Send/receive groups of 1 char to start
+    prefs_set(GROUP_DLY, 0);  // Send/receive with no delay
     prefs_set(KEY_SPEED, 25); // Send at 25 wpm to start
     prefs_set(CHAR_SET, 5);   // Use Koch order char set
     prefs_set(KOCH_NUM, 5);   // Use first 5 char in Koch set
@@ -498,12 +539,16 @@ void prefs_init()
 // Constrain prefs values to defined limits
 // Echo value to serial port
 //========================
-byte prefs_set(unsigned int indx, byte val)
+byte prefs_set(byte pref, int val)
 {
-  const byte lo_lim[] {0, 1, 20, 1, 1, 0, 0};  // Table of lower limits of preference values
-  const byte hi_lim[] {170, 15, 30, 6, 40, 39, 1};  // Table of uppper limits of preference values
+  const byte lo_lim[] {0, 1, 0, 20, 1, 1, 0, 0};  // Table of lower limits of preference values
+  const byte hi_lim[] {170, 15, 30, 30, 6, 40, 39, 1};  // Table of uppper limits of preference values
   byte new_val;
+  byte indx;
 
+  // Constrain index, just to be safe
+  indx = constrain(pref, 0, n_prefs);
+  
   // Set new value
   new_val = constrain(val, lo_lim[indx], hi_lim[indx]);
 
@@ -515,6 +560,9 @@ byte prefs_set(unsigned int indx, byte val)
     case GROUP_NUM:
       Serial.print("Group size = ");
       break;
+    case GROUP_DLY:
+      Serial.print("Inter-character Delay = ");
+      break; 
     case KEY_SPEED:
       Serial.print("Key speed = ");
       break;

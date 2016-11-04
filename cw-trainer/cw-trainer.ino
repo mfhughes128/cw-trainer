@@ -55,26 +55,37 @@ char line_buf[17];
 //            KOCH_NUM is number to use
 //            KOCH_SKIP is number to skip
 //    6 = reserved
-#define SAVED_FLG 0   // will be 170 if settings have been saved to EEPROM
-#define GROUP_NUM 1   // expected number of cw characters to be received
-#define GROUP_DLY 2   // delay before sending (in 0.01 sec increments)
-#define KEY_SPEED 3   // morse keying speed (WPM)
-#define CHAR_SET  4   // defines which character set to send the student.
-#define KOCH_NUM  5   // how many character to use
-#define KOCH_SKIP 6   // characters to skip in the Koch table
-#define OUT_MODE  7   // 0 = Key, 1 = Speaker
-byte prefs[8];        // Table of preference values
-const byte n_prefs = sizeof(prefs)-1;  // number of prefs
+#define SAVED_FLG 0     // will be 170 if settings have been saved to EEPROM
+#define GROUP_NUM 1     // expected number of cw characters to be received
+#define GROUP_DLY 2     // delay before sending (in 0.01 sec increments)
+#define KEY_SPEED 3     // morse keying speed (WPM)
+#define CHAR_SET  4     // defines which character set to send the student.
+#define KOCH_NUM  5     // how many character to use
+#define KOCH_SKIP 6     // characters to skip in the Koch table
+#define OUT_MODE  7     // 0 = Key, 1 = Speaker
+#define NUM_PREFS 8     // number of entries in the preference list
+byte prefs[NUM_PREFS];  // Table of preference values
 
 //=========================================
-// The speed of the sent characters was measured with MRP40.
-// the sent code was slow, an adjustment is necessary to speed it up.
-// with an Key_speed_adj = 3, the measured output speed is
+// There is a document at the ARRL that tells how to measure CW speed by sending PARIS. 
+// The length of time it takes to send PARIS in seconds divided in to 60 gives the speed in WPM
+// with the Key_speed_adj = -2, 
+// and the characters delay = 0, the measured output speed is
 // 20 wpm measured to be 19.9 wpm
-// 25 wpm measured to be 24.8 wpm
-// 30 wpm measured to be 28.7 wpm
+// 25 wpm measured to be 25.3 wpm
+// 30 wpm measured to be 30.8 wpm
+//
+// and the characters delay = 10, the measured output speed is
+// 20 wpm measured to be 17.7 wpm
+// 25 wpm measured to be 21.6 wpm
+// 30 wpm measured to be 25.6 wpm
+//
+// and the characters delay = 20, the measured output speed is
+// 20 wpm measured to be 15.7 wpm
+// 25 wpm measured to be 18.9 wpm
+// 30 wpm measured to be 21.9 wpm
 //=========================================
-byte Key_speed_adj = 3; // correction for keying speed
+int Key_speed_adj = -2; // correction for keying speed
 
 // IO definitions
 const byte morseInPin = 2; // Pin for input
@@ -143,9 +154,9 @@ byte get_mode()
   const static char msg3[] PROGMEM = ">Set Preferences";
   const static char msg4[] PROGMEM = ">Run PARIS Test ";
   const static char* const main_menu[] PROGMEM = {msg0, msg1, msg2, msg3, msg4};
+  const byte n_entry = 4;  // number of menu options
 
   byte entry = 1;  // current menu option
-  const byte n_entry = 4;  // number of menu options
   byte buttons = 0;
   boolean done = false;
 
@@ -227,11 +238,11 @@ void set_prefs()
         done = true;
       } else if (buttons & BUTTON_UP) {
         tmp = --pref;
-        pref = constrain(tmp, 1, n_prefs);
+        pref = constrain(tmp, 1, NUM_PREFS-1);
         next = true;
       } else if (buttons & BUTTON_DOWN) {
         tmp = ++pref;
-        pref = constrain(tmp, 1, n_prefs);
+        pref = constrain(tmp, 1, NUM_PREFS-1);
         next = true;
       } else if (buttons & BUTTON_RIGHT) {
         tmp = ++p_val;
@@ -254,7 +265,7 @@ void set_prefs()
   
   // Save all prefs to EEPROM before returning.
   prefs_set(SAVED_FLG, 170);  // Set prefs saved flag
-  for (int i=0; i<n_prefs; i++) {
+  for (int i=0; i<NUM_PREFS; i++) {
     EEPROM.write(i, prefs[i]);
   }
   
@@ -509,13 +520,11 @@ void paris_test()
 //===========================
 void prefs_init()
 {
-  byte n_prefs = sizeof(prefs);
-  
   // Restore app settings from the EEPROM if the saved
   // flag value is 170, otherwise init to defaults.
   if (EEPROM.read(0) == 170)
   {
-    for (int idx = 0; idx < n_prefs; idx++)
+    for (int idx = 0; idx < NUM_PREFS; idx++)
     {
       prefs_set(idx,EEPROM.read(idx));
     }
@@ -546,11 +555,11 @@ byte prefs_set(byte pref, int val)
   byte new_val;
   byte indx;
 
-  // Constrain index, just to be safe
-  indx = constrain(pref, 0, n_prefs);
+
   
   // Set new value
-  new_val = constrain(val, lo_lim[indx], hi_lim[indx]);
+  indx = constrain(pref, 0, NUM_PREFS-1);                // Constrain index, just to be safe
+  new_val = constrain(val, lo_lim[indx], hi_lim[indx]);  // Set new value within defined limits
 
   // Dispatch on preference index to do debug print
   switch (indx) {
@@ -581,6 +590,7 @@ byte prefs_set(byte pref, int val)
       break;
     default:
       Serial.print("Preference index out of range\n");
+      return new_val;
   }
 
   // Print and save new value before returning it

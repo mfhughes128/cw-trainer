@@ -371,7 +371,7 @@ void morse_trainer()
     for (i = 0; i < (prefs[GROUP_NUM]); i++)
     {
       if (!error) {  // if no error on last round, generate new text.
-        j = random(lo, hi);
+        j = random(lo, hi+1);
         cw_tx[i] = ch_buf[j];
       }
 

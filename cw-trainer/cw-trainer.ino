@@ -283,7 +283,7 @@ void morse_trainer()
   
   //Character sets
   const static char koch[] PROGMEM = {'K','M','R','S','U','A','P','T','L','O','W','I','.','N','J','E','F',
-  '0','Y','V','.','G','5','/','Q','9','Z','H','3','8','B','?','4','2','7','C','1','D','6','X','\0'};
+  '0','Y','V',',','G','5','/','Q','9','Z','H','3','8','B','?','4','2','7','C','1','D','6','X','\0'};
   const static char alpha[] PROGMEM = {'0','1','2','3','4','5','6','7','8','9','A','B','C','D','E','F','G',
   'H','I','J','K','L','M','N','O','P','Q','R','S','T','U','V','W','X','Y','Z',',','.','/','?','\0'};
   const static char* const char_sets[] PROGMEM = {alpha, koch};
@@ -371,7 +371,7 @@ void morse_trainer()
     for (i = 0; i < (prefs[GROUP_NUM]); i++)
     {
       if (!error) {  // if no error on last round, generate new text.
-        j = random(lo, hi);
+        j = random(lo, hi+1);
         cw_tx[i] = ch_buf[j];
       }
 

@@ -327,26 +327,27 @@ void morse_trainer()
   Morse morse = Morse(_pin, _speed, _mode);  
   
   // Setup character set
+  // Note: The high limit on random() is exclusive, so 'hi' is the table index + 1 
   switch (prefs[CHAR_SET]) {
     case 1:  // alpha characters
       cset = 0;
       lo = 10;
-      hi = 35;
+      hi = 36;
       break;
     case 2:  // numbers
       cset = 0;
       lo = 0;
-      hi = 9;
+      hi = 10;
       break;
     case 3:  // punctuation
       cset = 0;
       lo = 36;
-      hi = 39;
+      hi = 40;
       break;
     case 4:  // all alphabetic
       cset = 0;
       lo = 0;
-      hi = 39;
+      hi = 40;
       break;
     case 5:  // Koch order
       cset = 1;
@@ -365,13 +366,12 @@ void morse_trainer()
   do {
     Serial.print("\nTop of the send loop  ");
     lcd.clear();
-    lcd.setCursor(0, 0); // Set the cursor to top line, left
 
     // Send characters to trainee
     for (i = 0; i < (prefs[GROUP_NUM]); i++)
     {
       if (!error) {  // if no error on last round, generate new text.
-        j = random(lo, hi+1);
+        j = random(lo, hi);
         cw_tx[i] = ch_buf[j];
       }
 
@@ -409,7 +409,7 @@ void morse_trainer()
       lcd.setBacklight(WHITE);      
     }
 
-    delay(1000);  //Leave time for display to catch up and show the bad character.
+    delay(100);  //0.1 sec pause at the end of the loop.
 
   } while(!(buttons));
 
@@ -493,7 +493,6 @@ void paris_test()
   {
     Serial.print("\nTop of the send loop  ");
     lcd.clear();
-    lcd.setCursor(0, 0); // Set the cursor to top line, left
     delay(1000);  // one second between each paris
     
     // Send characters 

@@ -366,7 +366,6 @@ void morse_trainer()
   do {
     Serial.print("\nTop of the send loop  ");
     lcd.clear();
-    lcd.setCursor(0, 0); // Set the cursor to top line, left
 
     // Send characters to trainee
     for (i = 0; i < (prefs[GROUP_NUM]); i++)
@@ -410,7 +409,7 @@ void morse_trainer()
       lcd.setBacklight(WHITE);      
     }
 
-    delay(1000);  //Leave time for display to catch up and show the bad character.
+    delay(100);  //0.1 sec pause at the end of the loop.
 
   } while(!(buttons));
 
@@ -494,7 +493,6 @@ void paris_test()
   {
     Serial.print("\nTop of the send loop  ");
     lcd.clear();
-    lcd.setCursor(0, 0); // Set the cursor to top line, left
     delay(1000);  // one second between each paris
     
     // Send characters 

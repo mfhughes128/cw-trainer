@@ -1,0 +1,31 @@
+#######################################
+# Syntax Coloring Map For MorseEnDecoder
+#######################################
+
+#######################################
+# Datatypes (KEYWORD1)
+#######################################
+
+morseDecoder	KEYWORD1
+morseEncoder	KEYWORD1
+
+#######################################
+# Methods and Functions (KEYWORD2)
+#######################################
+decode	KEYWORD2
+encode	KEYWORD2
+setspeed	KEYWORD2
+read	KEYWORD2
+write	KEYWORD2
+available	KEYWORD2
+
+
+#######################################
+# Constants (LITERAL1)
+#######################################
+
+MORSE_AUDIO	LITERAL1
+MORSE_KEYER	LITERAL1
+MORSE_ACTIVE_LOW	LITERAL1
+MORSE_ACTIVE_HIGH	LITERAL1
+

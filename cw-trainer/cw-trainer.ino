@@ -9,9 +9,6 @@
   Uses code by Glen Popiel, KW5GP, found in his book, Arduino for Ham Radio, published by the ARRL.
   Modified and added LCD display by Glen Popiel - KW5GP
 
-  Uses Arduino Morse Library by Erik Linder SM0RVV and Mark VandeWettering K6HX
-  Contact: sm0rvv at google mail. Released 2011 under GPLv3 Version 0.2
-
   Uses MORSE ENDECODER Library by raronzen
   Copyright (C) 2010, 2012 raron GNU GPLv3 license (http://www.gnu.org/licenses)
   Contact: raronzen@gmail.com  (not checked too often..)
@@ -26,7 +23,6 @@
 
 #include <avr/pgmspace.h>
 #include <EEPROM.h>
-#include <Morse.h>
 #include <MorseEnDecoder.h>  // Morse EnDecoder Library
 #include <Adafruit_RGBLCDShield.h>
 #include <utility/Adafruit_MCP23017.h>
@@ -300,31 +296,37 @@ void morse_trainer()
   byte buttons;
 
   // Morse sender parameters
-  byte _speed;
-  byte _pin;
-  byte _mode;
+  byte _speed = prefs[KEY_SPEED] + Key_speed_adj;  // Current speed setting in WPM
   
 
   // Init ===========================================================
   Serial.println("Morse trainer started");
   randomSeed(micros()); // random seed = microseconds since start.
 
+  // Setup Speaker for decoder sidetone and encoder output
+  MorseSpeaker Mspkr(beep_pin);
+  Mspkr.sideToneOn;
+  
   // Setup Morse receiver
-  morseDecoder morseInput = morseDecoder(morseInPin, MORSE_KEYER, MORSE_ACTIVE_LOW);
+  MorseInKey DecoderIn(morseInPin, ACTIVE_LOW, &Mspkr);
+  MorseDecoder morseInput(&DecoderIn);
+  morseInput.setspeed(_speed);
   
   // Setup Morse sender
-  _speed = prefs[KEY_SPEED] + Key_speed_adj;
+  MorseOut *EncoderOut_p;
   switch (prefs[OUT_MODE]) {
     case 0:  // Digital (key) output
-      _pin = key_pin;
-      _mode = 0;
+      MorseOutKey KeyOut(key_pin, ACTIVE_HIGH);
+      EncoderOut_p = &KeyOut;
       break;
     case 1:  // Analog (beep) output
-      _pin = beep_pin;
-      _mode = 1;
+      Mspkr.outputToneOn = true;
+      MorseOutTone ToneOut(&Mspkr);
+      EncoderOut_p = &ToneOut;
       break;
   }
-  Morse morse = Morse(_pin, _speed, _mode);  
+  MorseEncoder morse(EncoderOut_p);
+  morse.setspeed(_speed);
   
   // Setup character set
   // Note: The high limit on random() is exclusive, so 'hi' is the table index + 1 
@@ -379,7 +381,10 @@ void morse_trainer()
         delay(prefs[GROUP_DLY] * 10);
       }
       lcd.print(cw_tx[i]);  // Display the sent char
-      morse.send(cw_tx[i]);   // Send the character
+      do {
+        morse.encode();  //Loop until the encoder is idle
+      } while (!morse.available());
+      morse.write(cw_tx[i]);   // Send the character
       Serial.print(cw_tx[i]); // debug print
     }
 
@@ -431,8 +436,16 @@ void morse_decode()
   char cw_rx;
   byte button;
   byte ch_cnt = 0;
+  byte _speed = prefs[KEY_SPEED] + Key_speed_adj;  // Current speed setting in WPM
 
-  morseDecoder morseInput = morseDecoder(morseInPin, MORSE_KEYER, MORSE_ACTIVE_LOW);
+  // Setup Speaker for decoder sidetone and encoder output
+  MorseSpeaker Mspkr(beep_pin);
+  Mspkr.sideToneOn;
+  
+  // Setup Morse receiver
+  MorseInKey DecoderIn(morseInPin, ACTIVE_LOW, &Mspkr);
+  MorseDecoder morseInput(&DecoderIn);
+  morseInput.setspeed(_speed);
 
   Serial.println("Morse decoder started");
   lcd.clear();
@@ -468,25 +481,28 @@ void paris_test()
   char cw_tx[]= "PARIS";
 
   // Morse sender parameters
-  byte _speed;
-  byte _pin;
-  byte _mode;
+  byte _speed = prefs[KEY_SPEED] + Key_speed_adj;  // Current speed setting in WPM
 
   boolean done = false;
   
+  // Setup Speaker for decoder sidetone and encoder output
+  MorseSpeaker Mspkr(beep_pin);
+
   // Setup Morse sender
-  _speed = prefs[KEY_SPEED] + Key_speed_adj;
+  MorseOut *EncoderOut_p;
   switch (prefs[OUT_MODE]) {
     case 0:  // Digital (key) output
-      _pin = key_pin;
-      _mode = 0;
+      MorseOutKey KeyOut(key_pin, ACTIVE_HIGH);
+      EncoderOut_p = &KeyOut;
       break;
     case 1:  // Analog (beep) output
-      _pin = beep_pin;
-      _mode = 1;
+      Mspkr.outputToneOn = true;
+      MorseOutTone ToneOut(&Mspkr);
+      EncoderOut_p = &ToneOut;
       break;
   }
-  Morse morse = Morse(_pin, _speed, _mode);  
+  MorseEncoder morse(EncoderOut_p);
+  morse.setspeed(_speed);
 
   // Loop sending until a button is pressed
   do
@@ -503,7 +519,8 @@ void paris_test()
         delay(prefs[GROUP_DLY] * 10);
       }
       lcd.print(cw_tx[i]);  // Display the sent char
-      morse.send(cw_tx[i]);   // Send the character
+      while (!morse.available()) delay(1);  // Encoder idle?
+      morse.write(cw_tx[i]);   // Send the character
       Serial.print(cw_tx[i]); // debug print
     }
   } while (!done);
@@ -549,7 +566,7 @@ void prefs_init()
 //========================
 byte prefs_set(byte pref, int val)
 {
-  const byte lo_lim[] {0, 1, 0, 20, 1, 1, 0, 0};  // Table of lower limits of preference values
+  const byte lo_lim[] {0, 1, 0, 5, 1, 1, 0, 0};  // Table of lower limits of preference values
   const byte hi_lim[] {170, 15, 30, 30, 6, 40, 39, 1};  // Table of uppper limits of preference values
   byte new_val;
   byte indx;

@@ -305,7 +305,7 @@ void morse_trainer()
 
   // Setup Speaker for decoder sidetone and encoder output
   MorseSpeaker Mspkr(beep_pin);
-  Mspkr.sideToneOn;
+  Mspkr.sideToneOn = true;
   
   // Setup Morse receiver
   MorseInKey DecoderIn(morseInPin, ACTIVE_LOW, &Mspkr);
@@ -325,7 +325,7 @@ void morse_trainer()
       EncoderOut_p = &ToneOut;
       break;
   }
-  MorseEncoder morse(EncoderOut_p);
+  MorseEncoder morse(&ToneOut);
   morse.setspeed(_speed);
   
   // Setup character set
@@ -381,10 +381,10 @@ void morse_trainer()
         delay(prefs[GROUP_DLY] * 10);
       }
       lcd.print(cw_tx[i]);  // Display the sent char
-      do {
-        morse.encode();  //Loop until the encoder is idle
-      } while (!morse.available());
       morse.write(cw_tx[i]);   // Send the character
+      do {
+        morse.encode();
+      } while (!morse.available());  // Encoder is idle?
       Serial.print(cw_tx[i]); // debug print
     }
 
@@ -393,7 +393,7 @@ void morse_trainer()
     error = false;
     rx_cnt = 0;
     lcd.setCursor(0, 1); // Set the cursor to bottom line, left
-    do {  
+    do {
       morseInput.decode();  // Start decoder and check char when it comes in
       if (morseInput.available()) {
         char cw_rx = morseInput.read();
@@ -440,7 +440,7 @@ void morse_decode()
 
   // Setup Speaker for decoder sidetone and encoder output
   MorseSpeaker Mspkr(beep_pin);
-  Mspkr.sideToneOn;
+  Mspkr.sideToneOn = true;
   
   // Setup Morse receiver
   MorseInKey DecoderIn(morseInPin, ACTIVE_LOW, &Mspkr);
@@ -519,8 +519,11 @@ void paris_test()
         delay(prefs[GROUP_DLY] * 10);
       }
       lcd.print(cw_tx[i]);  // Display the sent char
-      while (!morse.available()) delay(1);  // Encoder idle?
       morse.write(cw_tx[i]);   // Send the character
+      do {
+        morse.encode();
+      } while (!morse.available());  // Encoder idle?
+
       Serial.print(cw_tx[i]); // debug print
     }
   } while (!done);
@@ -614,4 +617,3 @@ byte prefs_set(byte pref, int val)
   prefs[indx] = new_val;
   return new_val;
 }
-

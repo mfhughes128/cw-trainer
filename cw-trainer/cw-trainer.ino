@@ -9,9 +9,6 @@
   Uses code by Glen Popiel, KW5GP, found in his book, Arduino for Ham Radio, published by the ARRL.
   Modified and added LCD display by Glen Popiel - KW5GP
 
-  Uses Arduino Morse Library by Erik Linder SM0RVV and Mark VandeWettering K6HX
-  Contact: sm0rvv at google mail. Released 2011 under GPLv3 Version 0.2
-
   Uses MORSE ENDECODER Library by raronzen
   Copyright (C) 2010, 2012 raron GNU GPLv3 license (http://www.gnu.org/licenses)
   Contact: raronzen@gmail.com  (not checked too often..)
@@ -26,10 +23,9 @@
 
 #include <avr/pgmspace.h>
 #include <EEPROM.h>
-#include <Morse.h>
-#include <MorseEnDecoder.h>  // Morse EnDecoder Library
 #include <Adafruit_RGBLCDShield.h>
 #include <utility/Adafruit_MCP23017.h>
+#include <MorseEnDecoder.h>  // Morse EnDecoder Library
 
 // These #defines make it easy to set the LCD backlight color
 #define RED 0x1
@@ -62,7 +58,7 @@ char line_buf[17];
 #define CHAR_SET  4     // defines which character set to send the student.
 #define KOCH_NUM  5     // how many character to use
 #define KOCH_SKIP 6     // characters to skip in the Koch table
-#define OUT_MODE  7     // 0 = Key, 1 = Speaker
+#define OUT_MODE  7     // 0 = Key, 1 = Key + Speaker
 #define NUM_PREFS 8     // number of entries in the preference list
 byte prefs[NUM_PREFS];  // Table of preference values
 
@@ -88,9 +84,9 @@ byte prefs[NUM_PREFS];  // Table of preference values
 int Key_speed_adj = -2; // correction for keying speed
 
 // IO definitions
-const byte morseInPin = 2; // Pin for input
-const byte beep_pin = 11;  // Pin for CW tone
-const byte key_pin = 12;   // Pin for CW Key
+const byte morseInPin = 2; // Pin for key or tone input
+const byte beep_pin = 11;  // Pin for speaker
+const byte key_pin = 12;   // Pin for CW digital output
 
 
 //====================
@@ -300,31 +296,32 @@ void morse_trainer()
   byte buttons;
 
   // Morse sender parameters
-  byte _speed;
-  byte _pin;
-  byte _mode;
+  byte _speed = prefs[KEY_SPEED] + Key_speed_adj;  // Current speed setting in WPM
   
 
   // Init ===========================================================
   Serial.println("Morse trainer started");
   randomSeed(micros()); // random seed = microseconds since start.
 
+  // Setup Speaker for decoder sidetone and encoder output
+  MorseSpeaker Mspkr(beep_pin);
+    
   // Setup Morse receiver
-  morseDecoder morseInput = morseDecoder(morseInPin, MORSE_KEYER, MORSE_ACTIVE_LOW);
+  MorseDecoder morseInput(morseInPin, MORSE_KEYER, MORSE_ACTIVE_LOW, &Mspkr);
+  Mspkr.sideToneOn = true;
+  morseInput.setspeed(_speed);
   
   // Setup Morse sender
-  _speed = prefs[KEY_SPEED] + Key_speed_adj;
+  MorseEncoder morse(key_pin, &Mspkr);
   switch (prefs[OUT_MODE]) {
     case 0:  // Digital (key) output
-      _pin = key_pin;
-      _mode = 0;
+      Mspkr.outputToneOn = false;
       break;
     case 1:  // Analog (beep) output
-      _pin = beep_pin;
-      _mode = 1;
+      Mspkr.outputToneOn = true;
       break;
   }
-  Morse morse = Morse(_pin, _speed, _mode);  
+  morse.setspeed(_speed);
   
   // Setup character set
   // Note: The high limit on random() is exclusive, so 'hi' is the table index + 1 
@@ -379,7 +376,10 @@ void morse_trainer()
         delay(prefs[GROUP_DLY] * 10);
       }
       lcd.print(cw_tx[i]);  // Display the sent char
-      morse.send(cw_tx[i]);   // Send the character
+      morse.write(cw_tx[i]);   // Send the character
+      do {
+        morse.encode();
+      } while (!morse.available());  // Encoder is idle?
       Serial.print(cw_tx[i]); // debug print
     }
 
@@ -388,7 +388,7 @@ void morse_trainer()
     error = false;
     rx_cnt = 0;
     lcd.setCursor(0, 1); // Set the cursor to bottom line, left
-    do {  
+    do {
       morseInput.decode();  // Start decoder and check char when it comes in
       if (morseInput.available()) {
         char cw_rx = morseInput.read();
@@ -431,8 +431,15 @@ void morse_decode()
   char cw_rx;
   byte button;
   byte ch_cnt = 0;
+  byte _speed = prefs[KEY_SPEED] + Key_speed_adj;  // Current speed setting in WPM
 
-  morseDecoder morseInput = morseDecoder(morseInPin, MORSE_KEYER, MORSE_ACTIVE_LOW);
+  // Setup Speaker for decoder sidetone and encoder output
+  MorseSpeaker Mspkr(beep_pin);
+  Mspkr.sideToneOn = true;
+  
+  // Setup Morse receiver
+  MorseDecoder morseInput(morseInPin, MORSE_KEYER, MORSE_ACTIVE_LOW, &Mspkr);
+  morseInput.setspeed(_speed);
 
   Serial.println("Morse decoder started");
   lcd.clear();
@@ -468,25 +475,24 @@ void paris_test()
   char cw_tx[]= "PARIS";
 
   // Morse sender parameters
-  byte _speed;
-  byte _pin;
-  byte _mode;
+  byte _speed = prefs[KEY_SPEED] + Key_speed_adj;  // Current speed setting in WPM
 
   boolean done = false;
   
+  // Setup Speaker for decoder sidetone and encoder output
+  MorseSpeaker Mspkr(beep_pin);
+
   // Setup Morse sender
-  _speed = prefs[KEY_SPEED] + Key_speed_adj;
+  MorseEncoder morse(key_pin, &Mspkr);
   switch (prefs[OUT_MODE]) {
     case 0:  // Digital (key) output
-      _pin = key_pin;
-      _mode = 0;
+      Mspkr.outputToneOn = false;
       break;
     case 1:  // Analog (beep) output
-      _pin = beep_pin;
-      _mode = 1;
+      Mspkr.outputToneOn = true;
       break;
   }
-  Morse morse = Morse(_pin, _speed, _mode);  
+  morse.setspeed(_speed);
 
   // Loop sending until a button is pressed
   do
@@ -503,7 +509,11 @@ void paris_test()
         delay(prefs[GROUP_DLY] * 10);
       }
       lcd.print(cw_tx[i]);  // Display the sent char
-      morse.send(cw_tx[i]);   // Send the character
+      morse.write(cw_tx[i]);   // Send the character
+      do {
+        morse.encode();
+      } while (!morse.available());  // Encoder idle?
+
       Serial.print(cw_tx[i]); // debug print
     }
   } while (!done);
@@ -549,7 +559,7 @@ void prefs_init()
 //========================
 byte prefs_set(byte pref, int val)
 {
-  const byte lo_lim[] {0, 1, 0, 20, 1, 1, 0, 0};  // Table of lower limits of preference values
+  const byte lo_lim[] {0, 1, 0, 10, 1, 1, 0, 0};  // Table of lower limits of preference values
   const byte hi_lim[] {170, 15, 30, 30, 6, 40, 39, 1};  // Table of uppper limits of preference values
   byte new_val;
   byte indx;
@@ -597,4 +607,3 @@ byte prefs_set(byte pref, int val)
   prefs[indx] = new_val;
   return new_val;
 }
-

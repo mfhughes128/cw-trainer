@@ -23,9 +23,9 @@
 
 #include <avr/pgmspace.h>
 #include <EEPROM.h>
-#include <MorseEnDecoder.h>  // Morse EnDecoder Library
 #include <Adafruit_RGBLCDShield.h>
 #include <utility/Adafruit_MCP23017.h>
+#include <MorseEnDecoder.h>  // Morse EnDecoder Library
 
 // These #defines make it easy to set the LCD backlight color
 #define RED 0x1
@@ -58,7 +58,7 @@ char line_buf[17];
 #define CHAR_SET  4     // defines which character set to send the student.
 #define KOCH_NUM  5     // how many character to use
 #define KOCH_SKIP 6     // characters to skip in the Koch table
-#define OUT_MODE  7     // 0 = Key, 1 = Speaker
+#define OUT_MODE  7     // 0 = Key, 1 = Key + Speaker
 #define NUM_PREFS 8     // number of entries in the preference list
 byte prefs[NUM_PREFS];  // Table of preference values
 
@@ -84,9 +84,9 @@ byte prefs[NUM_PREFS];  // Table of preference values
 int Key_speed_adj = -2; // correction for keying speed
 
 // IO definitions
-const byte morseInPin = 2; // Pin for input
-const byte beep_pin = 11;  // Pin for CW tone
-const byte key_pin = 12;   // Pin for CW Key
+const byte morseInPin = 2; // Pin for key or tone input
+const byte beep_pin = 11;  // Pin for speaker
+const byte key_pin = 12;   // Pin for CW digital output
 
 
 //====================
@@ -305,27 +305,22 @@ void morse_trainer()
 
   // Setup Speaker for decoder sidetone and encoder output
   MorseSpeaker Mspkr(beep_pin);
-  Mspkr.sideToneOn = true;
-  
+    
   // Setup Morse receiver
-  MorseInKey DecoderIn(morseInPin, ACTIVE_LOW, &Mspkr);
-  MorseDecoder morseInput(&DecoderIn);
+  MorseDecoder morseInput(morseInPin, MORSE_KEYER, MORSE_ACTIVE_LOW, &Mspkr);
+  Mspkr.sideToneOn = true;
   morseInput.setspeed(_speed);
   
   // Setup Morse sender
-  MorseOut *EncoderOut_p;
+  MorseEncoder morse(key_pin, &Mspkr);
   switch (prefs[OUT_MODE]) {
     case 0:  // Digital (key) output
-      MorseOutKey KeyOut(key_pin, ACTIVE_HIGH);
-      EncoderOut_p = &KeyOut;
+      Mspkr.outputToneOn = false;
       break;
     case 1:  // Analog (beep) output
       Mspkr.outputToneOn = true;
-      MorseOutTone ToneOut(&Mspkr);
-      EncoderOut_p = &ToneOut;
       break;
   }
-  MorseEncoder morse(&ToneOut);
   morse.setspeed(_speed);
   
   // Setup character set
@@ -443,8 +438,7 @@ void morse_decode()
   Mspkr.sideToneOn = true;
   
   // Setup Morse receiver
-  MorseInKey DecoderIn(morseInPin, ACTIVE_LOW, &Mspkr);
-  MorseDecoder morseInput(&DecoderIn);
+  MorseDecoder morseInput(morseInPin, MORSE_KEYER, MORSE_ACTIVE_LOW, &Mspkr);
   morseInput.setspeed(_speed);
 
   Serial.println("Morse decoder started");
@@ -489,19 +483,15 @@ void paris_test()
   MorseSpeaker Mspkr(beep_pin);
 
   // Setup Morse sender
-  MorseOut *EncoderOut_p;
+  MorseEncoder morse(key_pin, &Mspkr);
   switch (prefs[OUT_MODE]) {
     case 0:  // Digital (key) output
-      MorseOutKey KeyOut(key_pin, ACTIVE_HIGH);
-      EncoderOut_p = &KeyOut;
+      Mspkr.outputToneOn = false;
       break;
     case 1:  // Analog (beep) output
       Mspkr.outputToneOn = true;
-      MorseOutTone ToneOut(&Mspkr);
-      EncoderOut_p = &ToneOut;
       break;
   }
-  MorseEncoder morse(EncoderOut_p);
   morse.setspeed(_speed);
 
   // Loop sending until a button is pressed
@@ -569,7 +559,7 @@ void prefs_init()
 //========================
 byte prefs_set(byte pref, int val)
 {
-  const byte lo_lim[] {0, 1, 0, 5, 1, 1, 0, 0};  // Table of lower limits of preference values
+  const byte lo_lim[] {0, 1, 0, 10, 1, 1, 0, 0};  // Table of lower limits of preference values
   const byte hi_lim[] {170, 15, 30, 30, 6, 40, 39, 1};  // Table of uppper limits of preference values
   byte new_val;
   byte indx;
